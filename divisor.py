@@ -1,7 +1,27 @@
 import streamlit as st
+import pandas as pd
+from io import BytesIO
+
 st.set_page_config(page_title="Divisor de Contas", page_icon="💸")
 st.title("💸 Divisor de Contas")
 st.caption("Divida uma conta entre várias pessoas, de forma igual ou por item.")
+
+def gerar_excel(resumo: dict, itens: list = None):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_resumo = pd.DataFrame(list(resumo.items()), columns=["Pessoa", "Valor a pagar (R$)"])
+        df_resumo.to_excel(writer, sheet_name="Resumo", index=False)
+        if itens:
+            df_itens = pd.DataFrame(itens)
+            df_itens["pessoas"] = df_itens["pessoas"].apply(lambda p: ", ".join(p))
+            df_itens.to_excel(writer, sheet_name="Itens", index=False)
+        for pessoa in resumo:
+            valor = resumo[pessoa]
+            pd.DataFrame([{"Pessoa": pessoa, "Valor a pagar (R$)": valor}]).to_excel(
+                writer, sheet_name=pessoa[:31], index=False
+            )
+    return output.getvalue()
+
 # --- Passo 1: pessoas ---
 st.header("1. Quem vai dividir a conta?")
 if "pessoas" not in st.session_state:
@@ -23,9 +43,11 @@ for i, pessoa in enumerate(st.session_state.pessoas):
 if len(st.session_state.pessoas) < 2:
     st.warning("Adicione pelo menos 2 pessoas para dividir a conta.")
     st.stop()
+
 # --- Passo 2: modo de divisão ---
 st.header("2. Como dividir?")
 modo = st.radio("Escolha o modo", ["Dividir igualmente", "Dividir por item"])
+
 if modo == "Dividir igualmente":
     valor_total = st.number_input("Valor total da conta (R$)", min_value=0.0, step=1.0, format="%.2f")
     gorjeta_pct = st.slider("Gorjeta/serviço (%)", 0, 30, 10)
@@ -38,6 +60,11 @@ if modo == "Dividir igualmente":
         st.subheader("Resumo")
         for pessoa in st.session_state.pessoas:
             st.write(f"**{pessoa}**: R$ {valor_por_pessoa:.2f}")
+
+        resumo = {p: valor_por_pessoa for p in st.session_state.pessoas}
+        excel_bytes = gerar_excel(resumo)
+        st.download_button("📥 Baixar planilha Excel", excel_bytes, "divisor_de_contas.xlsx")
+
 else:  # Dividir por item
     st.write("Adicione os itens e quem consumiu cada um.")
     if "itens" not in st.session_state:
@@ -74,6 +101,8 @@ else:  # Dividir por item
         st.subheader("Quanto cada um paga")
         for pessoa, valor in totais_com_gorjeta.items():
             st.write(f"**{pessoa}**: R$ {valor:.2f}")
+
+        excel_bytes = gerar_excel(totais_com_gorjeta, st.session_state.itens)
+        st.download_button("📥 Baixar planilha Excel", excel_bytes, "divisor_de_contas.xlsx")
     else:
         st.info("Nenhum item adicionado ainda.")
-        
